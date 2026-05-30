@@ -5,13 +5,27 @@ DIRECTION_ARROWS = ["\u2192", "\u2197", "\u2196", "\u2190", "\u2199", "\u2198"]
 SCALE = 4
 
 
-def get_tile_emoji(tile):
+GREEN = "\033[32m"
+RED = "\033[31m"
+RESET = "\033[0m"
+
+
+def get_tile_emoji(tile, players=None, color=True):
     if not tile or not tile.content:
         return "\u00b7"
     parts = []
     for obj in tile.content:
         if isinstance(obj, Ship):
-            parts.append(DIRECTION_ARROWS[obj.direction])
+            arrow = DIRECTION_ARROWS[obj.direction]
+            if players and color:
+                if players[0].ship is obj:
+                    parts.append(f"{GREEN}{arrow}{RESET}")
+                elif len(players) > 1 and players[1].ship is obj:
+                    parts.append(f"{RED}{arrow}{RESET}")
+                else:
+                    parts.append(arrow)
+            else:
+                parts.append(arrow)
         else:
             parts.append(obj.emoji)
     return "\u200b".join(parts)
@@ -31,7 +45,7 @@ def hex_to_pos(q, r):
     return (q + r / 2) * SCALE
 
 
-def render_board(board, players=None):
+def render_board(board, players=None, color=True):
     lines = []
     min_x = -HEX_RADIUS * SCALE
     max_x = HEX_RADIUS * SCALE
@@ -45,7 +59,7 @@ def render_board(board, players=None):
             x = hex_to_pos(q, r)
             ix = int(round(x)) + offset_x
             tile = board.get_tile(q, r)
-            emoji = get_tile_emoji(tile) if tile else "\u00b7"
+            emoji = get_tile_emoji(tile, players, color) if tile else "\u00b7"
             if 0 <= ix < width:
                 line[ix] = emoji
         lines.append("".join(line))

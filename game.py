@@ -61,7 +61,7 @@ class Game:
         lines.append("=" * 60)
         lines.append(f"ROUND {self.round_num}" if self.round_num > 0 else "")
         lines.append("")
-        lines.extend(render_board(self.board))
+        lines.extend(render_board(self.board, self.players))
         for p in self.players:
             lines.append(render_ship_status(p))
         lines.append("")
@@ -98,6 +98,12 @@ class Game:
 
         self._settlement()
         self._check_winner()
+        if not self.is_over:
+            self._render()
+            for p in self.players:
+                if p.is_human and p.ship.is_alive():
+                    self._input("  Press Enter to see next round...  ")
+                    break
 
     def _declaration_phase(self):
         for player in self.players:
@@ -110,7 +116,6 @@ class Game:
                 player.declare_moves(self)
 
     def _run_turn(self, turn_index):
-        self.messages = []
         for player in self.players:
             if player.ship.is_alive():
                 moves_str = ", ".join(m.name for m in player.moves_queue)
@@ -154,6 +159,11 @@ class Game:
 
         self._check_projectile_collisions()
         self._render(turn_index)
+        if turn_index < 2:
+            for p in self.players:
+                if p.is_human and p.ship.is_alive():
+                    self._input("  Press Enter to see next turn...  ")
+                    break
 
     def _move_ships_concurrent(self):
         alive_ships = [p.ship for p in self.players if p.ship.is_alive()]
@@ -384,7 +394,7 @@ class Game:
         if not self.no_targeting:
             from targeting import TargetSelector
             while True:
-                selector = TargetSelector(self.board, source.q, source.r, max_range, action_name, self.players)
+                selector = TargetSelector(self.board, source.q, source.r, max_range, action_name, self.players, self.round_num)
                 result = selector.select()
                 if result is None:
                     return None
