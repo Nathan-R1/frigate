@@ -1,4 +1,4 @@
-from utils import NEIGHBOR_OFFSETS, Q_MIN, Q_MAX, R_MIN, R_MAX
+from utils import NEIGHBOR_OFFSETS, hex_coords, is_valid_hex
 
 
 class Tile:
@@ -11,7 +11,7 @@ class Tile:
         result = []
         for dq, dr in NEIGHBOR_OFFSETS:
             nq, nr = self.q + dq, self.r + dr
-            if Q_MIN <= nq <= Q_MAX and R_MIN <= nr <= R_MAX:
+            if is_valid_hex(nq, nr):
                 result.append((nq, nr))
         return result
 
@@ -38,9 +38,8 @@ class Tile:
 class Board:
     def __init__(self):
         self.tiles = {}
-        for q in range(Q_MIN, Q_MAX + 1):
-            for r in range(R_MIN, R_MAX + 1):
-                self.tiles[(q, r)] = Tile(q, r)
+        for q, r in hex_coords():
+            self.tiles[(q, r)] = Tile(q, r)
 
     def get_tile(self, q, r):
         return self.tiles.get((q, r))

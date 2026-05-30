@@ -49,6 +49,9 @@ class Player:
         target_dir = self.direction_toward(my_pos, enemy_pos)
         away_dir = self.direction_away(my_pos, enemy_pos)
 
+        orig_dir = self.ship.direction
+        orig_speed = self.ship.speed
+
         for _ in range(3):
             if dist > AI_DESIRED_RANGE:
                 if self.ship.direction != target_dir:
@@ -88,8 +91,8 @@ class Player:
             elif isinstance(self.moves_queue[-1], GravitonPlus):
                 self.ship.speed += 1
 
-        self.ship.speed = 0
-        self.ship.direction = 0
+        self.ship.speed = orig_speed
+        self.ship.direction = orig_dir
 
     def choose_non_move_action(self, game):
         if not self.ship.is_alive():

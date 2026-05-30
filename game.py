@@ -1,6 +1,6 @@
 import random
 
-from utils import NEIGHBOR_OFFSETS, Q_MIN, Q_MAX, R_MIN, R_MAX, hex_distance, coord_to_string
+from utils import NEIGHBOR_OFFSETS, HEX_RADIUS, hex_coords, hex_distance, coord_to_string
 from board import Board
 from objects import Ship, Asteroid, Projectile, Deployable, TorpedoDeployable
 from actions import (
@@ -23,9 +23,10 @@ class Game:
     def setup(self):
         player_ship = Ship("Player", "\U0001f680")
         ai_ship = Ship("Enemy", "\U0001f6f8")
+        ai_ship.direction = 3  # face W toward player
 
-        self.board.place_object(player_ship, Q_MIN, (R_MIN + R_MAX) // 2)
-        self.board.place_object(ai_ship, Q_MAX, (R_MIN + R_MAX) // 2)
+        self.board.place_object(player_ship, -HEX_RADIUS, 0)
+        self.board.place_object(ai_ship, HEX_RADIUS, 0)
 
         human = Player("Player", player_ship, is_human=True)
         ai = Player("Enemy", ai_ship, is_human=False)
@@ -34,18 +35,17 @@ class Game:
         self._scatter_asteroids(8)
 
     def _scatter_asteroids(self, count):
+        all_hexes = list(hex_coords())
+        random.shuffle(all_hexes)
         placed = 0
-        max_attempts = 200
-        attempts = 0
-        while placed < count and attempts < max_attempts:
-            q = random.randint(Q_MIN, Q_MAX)
-            r = random.randint(R_MIN, R_MAX)
+        for q, r in all_hexes:
+            if placed >= count:
+                break
             tile = self.board.get_tile(q, r)
             if tile and not tile.is_occupied():
                 asteroid = Asteroid()
                 tile.place(asteroid)
                 placed += 1
-            attempts += 1
 
     def run_round(self):
         self.round_num += 1
