@@ -1,6 +1,6 @@
 import random
 
-from utils import NEIGHBOR_OFFSETS, HEX_RADIUS, hex_coords, hex_distance, coord_to_string
+from utils import NEIGHBOR_OFFSETS, HEX_RADIUS, hex_coords, hex_distance, coord_to_string, string_to_coord
 from board import Board
 from objects import Ship, Asteroid, Projectile, Deployable, TorpedoDeployable
 from actions import (
@@ -8,22 +8,29 @@ from actions import (
     PD, Cannons, TorpedoDeploy, CommandTorpedo,
 )
 from player import Player
-from display import display_board, display_ship_status
+from display import render_board, render_ship_status
+from screen import Screen
 import sys
 
 
 class Game:
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, no_targeting=False):
         self.board = Board()
         self.players = []
         self.round_num = 0
         self.is_over = False
         self.verbose = verbose
+        self.no_targeting = no_targeting
+        self.messages = []
+        self.screen = Screen()
+
+    def log(self, msg):
+        self.messages.append(msg)
 
     def setup(self):
         player_ship = Ship("Player", "\U0001f680")
         ai_ship = Ship("Enemy", "\U0001f6f8")
-        ai_ship.direction = 3  # face W toward player
+        ai_ship.direction = 3
 
         self.board.place_object(player_ship, -HEX_RADIUS, 0)
         self.board.place_object(ai_ship, HEX_RADIUS, 0)
@@ -47,13 +54,52 @@ class Game:
                 tile.place(asteroid)
                 placed += 1
 
+    def _build_display(self, turn_num=None):
+        lines = []
+        lines.append("=" * 60)
+        lines.append("FRIGATE \u2014 Hex Space Combat")
+        lines.append("=" * 60)
+        lines.append(f"ROUND {self.round_num}" if self.round_num > 0 else "")
+        lines.append("")
+        lines.extend(render_board(self.board))
+        for p in self.players:
+            lines.append(render_ship_status(p))
+        lines.append("")
+        if turn_num is not None:
+            lines.append(f"--- Turn {turn_num + 1} ---")
+        msg_lines = self.messages[-6:]
+        for msg in msg_lines:
+            lines.append(msg if msg else "")
+        return lines
+
+    def _render(self, turn_num=None):
+        self.screen.render(self._build_display(turn_num))
+
+    def _input(self, prompt):
+        s = self.screen.input(prompt)
+        if s == "q":
+            print("\nQuitting...")
+            sys.exit(0)
+        return s
+
     def run_round(self):
         self.round_num += 1
-        print(f"\n{'='*60}")
-        print(f"ROUND {self.round_num}")
-        print(f"{'='*60}")
+        self.messages = []
 
-        # ── Declaration Phase ──
+        self._declaration_phase()
+
+        if self.is_over:
+            return
+
+        for turn in range(3):
+            if self.is_over:
+                break
+            self._run_turn(turn)
+
+        self._settlement()
+        self._check_winner()
+
+    def _declaration_phase(self):
         for player in self.players:
             if not player.ship.is_alive():
                 player.moves_queue = [NullMove(), NullMove(), NullMove()]
@@ -62,35 +108,18 @@ class Game:
                 self._human_declare_moves(player)
             else:
                 player.declare_moves(self)
-            moves_str = ", ".join(m.name for m in player.moves_queue)
-            if self.verbose and not player.is_human:
-                from utils import AI_DESIRED_RANGE
-                print(f"{player.name} moves: {moves_str}  (desired range: {AI_DESIRED_RANGE})")
-            else:
-                print(f"{player.name} moves: {moves_str}")
 
-        # ── Turns ──
-        for turn in range(3):
-            if self.is_over:
-                break
-            self.run_turn(turn)
-
-        # ── Settlement ──
+    def _run_turn(self, turn_index):
+        self.messages = []
         for player in self.players:
-            if not player.ship.is_alive():
-                continue
-            excess = player.ship.energy_spent - player.ship.max_energy
-            if excess > 0:
-                player.ship.take_damage(excess)
-                print(f"{player.name} pays {excess} overheat damage!")
-            player.ship.energy_spent = 0
+            if player.ship.is_alive():
+                moves_str = ", ".join(m.name for m in player.moves_queue)
+                if self.verbose and not player.is_human:
+                    from utils import AI_DESIRED_RANGE
+                    self.log(f"{player.name} moves: {moves_str}  (desired range: {AI_DESIRED_RANGE})")
+                else:
+                    self.log(f"{player.name} moves: {moves_str}")
 
-        self._check_winner()
-
-    def run_turn(self, turn_index):
-        print(f"\n--- Turn {turn_index + 1} ---")
-
-        # 1. Move Resolution
         for player in self.players:
             if not player.ship.is_alive():
                 continue
@@ -98,19 +127,11 @@ class Game:
                 move = player.moves_queue[turn_index]
                 move.execute(player, self)
 
-        # 2. Ship Movement (Concurrent)
         self._move_ships_concurrent()
-
-        # 3. Projectile Movement
         self._move_projectiles()
 
-        # Display after movement
-        display_board(self.board, self.players)
-        for player in self.players:
-            display_ship_status(player)
-        print()
+        self._render(turn_index)
 
-        # 4. Action Phase
         actions = []
         for player in self.players:
             if not player.ship.is_alive():
@@ -121,7 +142,9 @@ class Game:
             else:
                 action = player.choose_non_move_action(self)
             actions.append(action)
-            print(f"{player.name} action: {action.name}")
+            self.log(f"{player.name} action: {action.name}")
+
+        self._render(turn_index)
 
         for action, player in zip(actions, self.players):
             if not player.ship.is_alive():
@@ -130,15 +153,11 @@ class Game:
                 action.execute(player, self)
 
         self._check_projectile_collisions()
-
-        display_board(self.board, self.players)
-        for player in self.players:
-            display_ship_status(player)
+        self._render(turn_index)
 
     def _move_ships_concurrent(self):
         alive_ships = [p.ship for p in self.players if p.ship.is_alive()]
 
-        # Phase 1: Intended destinations
         for ship in alive_ships:
             current = ship.tile
             for _ in range(ship.speed):
@@ -149,36 +168,34 @@ class Game:
                 current = next_tile
             ship.intended_dest = current
 
-        # Phase 2: Conflict resolution
         if len(alive_ships) == 2:
             a, b = alive_ships[0], alive_ships[1]
             oa, da = a.tile, a.intended_dest
             ob, db = b.tile, b.intended_dest
 
             if da == ob and db == oa:
-                print("Collision: ships swap!")
+                self.log("Collision: ships swap!")
                 a.intended_dest = oa
                 b.intended_dest = ob
                 a.take_damage(3)
                 b.take_damage(3)
             elif da == db:
-                print("Collision: same hex!")
+                self.log("Collision: same hex!")
                 a.intended_dest = oa
                 b.intended_dest = ob
                 a.take_damage(3)
                 b.take_damage(3)
             elif da == ob and db != oa:
-                print("Collision: ship enters occupied hex!")
+                self.log("Collision: ship enters occupied hex!")
                 a.intended_dest = oa
                 a.take_damage(3)
                 b.take_damage(3)
             elif db == oa and da != ob:
-                print("Collision: ship enters occupied hex!")
+                self.log("Collision: ship enters occupied hex!")
                 b.intended_dest = ob
                 a.take_damage(3)
                 b.take_damage(3)
 
-        # Execute movement
         for ship in alive_ships:
             if ship.intended_dest != ship.tile:
                 ship.tile.remove(ship)
@@ -187,7 +204,7 @@ class Game:
 
         for ship in alive_ships:
             if not ship.is_alive():
-                print(f"{ship.name} has been destroyed!")
+                self.log(f"{ship.name} has been destroyed!")
                 self.is_over = True
 
     def _move_projectiles(self):
@@ -247,32 +264,33 @@ class Game:
                         obj.owner.deployables.remove(obj)
                     break
 
+    def _settlement(self):
+        for player in self.players:
+            if not player.ship.is_alive():
+                continue
+            excess = player.ship.energy_spent - player.ship.max_energy
+            if excess > 0:
+                player.ship.take_damage(excess)
+                self.log(f"{player.name} pays {excess} overheat damage!")
+            player.ship.energy_spent = 0
+
     def _check_winner(self):
         for player in self.players:
             if not player.ship.is_alive():
                 winner = [p for p in self.players if p.ship.is_alive()]
                 if winner:
-                    print(f"\n{winner[0].name} wins!")
+                    self.log(f"{winner[0].name} wins!")
                 else:
-                    print("\nDraw!")
+                    self.log("Draw!")
                 self.is_over = True
                 return
         if all(not p.ship.is_alive() for p in self.players):
-            print("\nDraw!")
+            self.log("Draw!")
             self.is_over = True
 
-    def _input(self, prompt):
-        try:
-            s = input(prompt).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            s = "q"
-        if s == "q":
-            print("\nQuitting...")
-            sys.exit(0)
-        return s
-
     def _human_declare_moves(self, player):
-        print(f"\n{player.name}: declare your 3 moves (enter empty for Null)")
+        saved = list(self.messages)
+        self.log(f"{player.name}: declare your 3 moves (enter empty for Null)")
         moves = []
         move_options = [
             ("1", "Graviton+ (accel, 2 energy)", GravitonPlus),
@@ -281,9 +299,11 @@ class Game:
             ("4", "Turn CCW (1 energy)", TurnCCW),
         ]
         for i in range(3):
-            print(f"  Move {i+1}:")
+            self.messages = list(saved)
+            self.log(f"  Move {i+1}:")
             for key, desc, _ in move_options:
-                print(f"    {key}. {desc}")
+                self.log(f"    {key}. {desc}")
+            self._render()
             choice = self._input("  Choice: ")
             for key, _, cls in move_options:
                 if choice == key:
@@ -294,7 +314,8 @@ class Game:
         player.moves_queue = moves
 
     def _human_choose_action(self, player):
-        print(f"\n{player.name}: choose non-move action (enter empty for Null)")
+        saved = list(self.messages)
+        self.log(f"{player.name}: choose non-move action (enter empty for Null)")
         enemy = None
         for p in self.players:
             if p != player and p.ship.is_alive():
@@ -311,9 +332,12 @@ class Game:
             options.append(("4", "Command Torpedo (free)"))
 
         for key, desc in options:
-            print(f"  {key}. {desc}")
+            self.log(f"  {key}. {desc}")
 
+        self._render()
         choice = self._input("  Choice: ")
+
+        self.messages = saved
 
         if choice == "":
             return NullAction()
@@ -339,10 +363,13 @@ class Game:
         if choice == "4" and player.deployables:
             torpedoes = [d for d in player.deployables if isinstance(d, TorpedoDeployable)]
             if torpedoes:
-                print("  Torpedo options:")
-                print("    1. Attack target")
-                print("    2. Destroy (self-destruct)")
+                sub_saved = list(self.messages)
+                self.log("  Torpedo options:")
+                self.log("    1. Attack target")
+                self.log("    2. Destroy (self-destruct)")
+                self._render()
                 sub = self._input("  Choice: ")
+                self.messages = sub_saved
                 if sub == "1":
                     target = self._get_target_in_range(player, 8, "Torpedo Attack", from_tile=torpedoes[0].tile)
                     if target:
@@ -354,20 +381,32 @@ class Game:
 
     def _get_target_in_range(self, player, max_range, action_name, from_tile=None):
         source = from_tile or player.ship.tile
+        if not self.no_targeting:
+            from targeting import TargetSelector
+            while True:
+                selector = TargetSelector(self.board, source.q, source.r, max_range, action_name, self.players)
+                result = selector.select()
+                if result is None:
+                    return None
+                q, r = result
+                dist = hex_distance((source.q, source.r), (q, r))
+                if dist <= max_range:
+                    return (q, r)
+                self.log(f"  Out of range ({dist} > {max_range})")
+                self._render()
+                self._input("  Press Enter to continue...  ")
+
         while True:
             s = self._input(f"  Target coordinate for {action_name} (max {max_range}, blank to skip): ")
             if s == "":
                 return None
             try:
-                from utils import string_to_coord
                 q, r = string_to_coord(s)
             except ValueError:
-                print(f"  Invalid coordinate")
+                self.log("  Invalid coordinate")
                 continue
             dist = hex_distance((source.q, source.r), (q, r))
             if dist > max_range:
-                print(f"  Out of range ({dist} > {max_range})")
+                self.log(f"  Out of range ({dist} > {max_range})")
                 continue
             return (q, r)
-
-

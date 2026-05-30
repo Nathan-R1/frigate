@@ -31,9 +31,8 @@ def hex_to_pos(q, r):
     return (q + r / 2) * SCALE
 
 
-def display_board(board, players=None):
-    print()
-
+def render_board(board, players=None):
+    lines = []
     min_x = -HEX_RADIUS * SCALE
     max_x = HEX_RADIUS * SCALE
     width = max_x - min_x + 1
@@ -49,24 +48,33 @@ def display_board(board, players=None):
             emoji = get_tile_emoji(tile) if tile else "\u00b7"
             if 0 <= ix < width:
                 line[ix] = emoji
-        print("".join(line))
-        print()
+        lines.append("".join(line))
+        lines.append("")
+    return lines
 
 
-def display_ship_status(player):
+def display_board(board, players=None):
+    for line in render_board(board, players):
+        print(line)
+
+
+def render_ship_status(player):
     ship = player.ship
     if not ship.is_alive():
-        print(f"{ship.emoji} {player.name}: DESTROYED")
-        return
+        return f"{ship.emoji} {player.name}: DESTROYED"
 
     hp_bar = _health_bar(ship.health, MAX_HEALTH)
     dir_name = DIRECTION_NAMES[ship.direction] if ship.direction < len(DIRECTION_NAMES) else "?"
-    print(
+    return (
         f"{ship.emoji} {player.name}: {hp_bar} {ship.health}/{MAX_HEALTH} HP  "
         f"\u26a1 {ship.max_energy - ship.energy_spent}/{ship.max_energy}  "
         f"SPD:{ship.speed}  DIR:{dir_name}  "
         f"@{tile_label(ship.tile.q, ship.tile.r) if ship.tile else '?'}"
     )
+
+
+def display_ship_status(player):
+    print(render_ship_status(player))
 
 
 def _health_bar(health, max_hp):

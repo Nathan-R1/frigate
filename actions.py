@@ -42,7 +42,7 @@ class TurnCW(Action):
         super().__init__("Turn CW", 1)
 
     def execute(self, actor, game):
-        actor.ship.direction = (actor.ship.direction + 1) % 6
+        actor.ship.direction = (actor.ship.direction - 1) % 6
         actor.ship.energy_spent += self.energy_cost
         return True
 
@@ -52,7 +52,7 @@ class TurnCCW(Action):
         super().__init__("Turn CCW", 1)
 
     def execute(self, actor, game):
-        actor.ship.direction = (actor.ship.direction - 1) % 6
+        actor.ship.direction = (actor.ship.direction + 1) % 6
         actor.ship.energy_spent += self.energy_cost
         return True
 
@@ -84,11 +84,11 @@ class PD(Action):
 
         dist = hex_distance((ship.tile.q, ship.tile.r), (self.target_q, self.target_r))
         if dist > self.range_val:
-            print(f"  {actor.name} PD: target out of range")
+            game.log(f"  {actor.name} PD: target out of range")
             return False
 
         if not has_line_of_sight(ship.tile, target_tile, game.board):
-            print(f"  {actor.name} PD: blocked by asteroid")
+            game.log(f"  {actor.name} PD: blocked by asteroid")
             return False
 
         targets = [o for o in target_tile.content if isinstance(o, Ship)]
@@ -102,7 +102,7 @@ class PD(Action):
                 hits += 1
 
         total_dmg = hits * self.damage
-        print(f"  {actor.name} PD: {hits}/{self.num_attacks} hits, {total_dmg} total damage")
+        game.log(f"  {actor.name} PD: {hits}/{self.num_attacks} hits, {total_dmg} total damage")
         ship.energy_spent += self.energy_cost
         return True
 
@@ -124,11 +124,11 @@ class Cannons(Action):
 
         dist = hex_distance((ship.tile.q, ship.tile.r), (self.target_q, self.target_r))
         if dist > self.range_val:
-            print(f"  {actor.name} Cannons: target out of range")
+            game.log(f"  {actor.name} Cannons: target out of range")
             return False
 
         if not has_line_of_sight(ship.tile, target_tile, game.board):
-            print(f"  {actor.name} Cannons: blocked by asteroid")
+            game.log(f"  {actor.name} Cannons: blocked by asteroid")
             return False
 
         targets = [o for o in target_tile.content if isinstance(o, Ship)]
@@ -142,7 +142,7 @@ class Cannons(Action):
                 hits += 1
 
         total_dmg = hits * self.damage
-        print(f"  {actor.name} Cannons: {hits}/{self.num_attacks} hits, {total_dmg} total damage")
+        game.log(f"  {actor.name} Cannons: {hits}/{self.num_attacks} hits, {total_dmg} total damage")
         ship.energy_spent += self.energy_cost
         return True
 
@@ -167,7 +167,7 @@ class TorpedoDeploy(Action):
         tile.place(torpedo)
         actor.deployables.append(torpedo)
         from utils import coord_to_string
-        print(f"  {actor.name} deployed torpedo at {coord_to_string(self.target_q, self.target_r)}")
+        game.log(f"  {actor.name} deployed torpedo at {coord_to_string(self.target_q, self.target_r)}")
         ship.energy_spent += self.energy_cost
         return True
 
@@ -183,7 +183,7 @@ class CommandTorpedo(Action):
     def execute(self, actor, game):
         if self.sub_action == "Destroy":
             from utils import coord_to_string
-            print(f"  {actor.name} torpedo at {coord_to_string(self.torpedo.tile.q, self.torpedo.tile.r)} self-destructed")
+            game.log(f"  {actor.name} torpedo at {coord_to_string(self.torpedo.tile.q, self.torpedo.tile.r)} self-destructed")
             game.board.remove_object(self.torpedo)
             if self.torpedo in actor.deployables:
                 actor.deployables.remove(self.torpedo)
@@ -204,7 +204,7 @@ class CommandTorpedo(Action):
                 return False
 
             if not has_line_of_sight(self.torpedo.tile, target_tile, game.board):
-                print(f"  {actor.name} Torpedo: blocked by asteroid")
+                game.log(f"  {actor.name} Torpedo: blocked by asteroid")
                 game.board.remove_object(self.torpedo)
                 if self.torpedo in actor.deployables:
                     actor.deployables.remove(self.torpedo)
@@ -224,7 +224,7 @@ class CommandTorpedo(Action):
                     hits += 1
 
             total_dmg = hits * self.torpedo.damage
-            print(f"  {actor.name} Torpedo: {hits}/{self.torpedo.attacks} hits, {total_dmg} total damage")
+            game.log(f"  {actor.name} Torpedo: {hits}/{self.torpedo.attacks} hits, {total_dmg} total damage")
 
             game.board.remove_object(self.torpedo)
             if self.torpedo in actor.deployables:

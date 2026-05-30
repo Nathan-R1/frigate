@@ -1,27 +1,21 @@
-import sys
+import argparse
 from game import Game
 
 
 def main():
-    verbose = "--verbose" in sys.argv
+    parser = argparse.ArgumentParser(description="FRIGATE — Hex Space Combat")
+    parser.add_argument("--verbose", action="store_true", help="Show AI debug info")
+    parser.add_argument("--no-targeting", action="store_true", help="Use text input instead of interactive targeting")
+    args = parser.parse_args()
 
-    print("=" * 60)
-    print("FRIGATE — Hex Space Combat")
-    if verbose:
-        print("(verbose mode)")
-    print("=" * 60)
-
-    game = Game(verbose=verbose)
+    game = Game(verbose=args.verbose, no_targeting=args.no_targeting)
     game.setup()
-
-    from display import display_board, display_ship_status
-    display_board(game.board, game.players)
-    for player in game.players:
-        display_ship_status(player)
+    game._render()
 
     while not game.is_over:
         game.run_round()
 
+    game.screen.render(game._build_display())
     print("\nGame Over!")
 
 
