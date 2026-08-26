@@ -1,7 +1,5 @@
 from abc import ABC
 
-from utils import MAX_HEALTH, MAX_ENERGY
-
 
 class Object(ABC):
     def __init__(self, name, emoji, tile=None):
@@ -16,35 +14,41 @@ class Object(ABC):
 class Ship(Object):
     def __init__(self, name, emoji, tile=None):
         super().__init__(name, emoji, tile)
-        self.health = MAX_HEALTH
-        self.max_energy = MAX_ENERGY
-        self.energy_spent = 0
+        self.hull = 10
+        self.hull_max = 10
+        self.shield = 5
+        self.shield_max = 5
+        self.energy = 6
+        self.max_energy = 6
+        self.storage = 10
+        self.scan_range = 5
+        self.navigation = 3
+        self.turning = 2
+        self.firing_arcs = [True] * 6
+        self.future_moves = []
+        self.uses_left = {}
+
+    def recharge_energy(self):
+        self.energy = self.max_energy
+
+    def reset_uses(self):
+        self.uses_left = {}
 
     def take_damage(self, amount):
-        self.health -= amount
+        if self.shield > 0:
+            absorbed = min(self.shield, amount)
+            self.shield -= absorbed
+            amount -= absorbed
+        self.hull -= amount
 
     def is_alive(self):
-        return self.health > 0
+        return self.hull > 0
 
 
 class Asteroid(Object):
     def __init__(self, tile=None):
         super().__init__("Asteroid", "\U0001faa8", tile)
         self.speed = 0
-
-
-class Projectile(Object):
-    def __init__(self, name, emoji, tile, direction, damage, owner=None):
-        super().__init__(name, emoji, tile)
-        self.direction = direction
-        self.speed = 1
-        self.damage = damage
-        self.owner = owner
-
-    def advance(self):
-        from utils import NEIGHBOR_OFFSETS
-        dq, dr = NEIGHBOR_OFFSETS[self.direction]
-        return self.tile.q + dq, self.tile.r + dr
 
 
 class Deployable(Object):

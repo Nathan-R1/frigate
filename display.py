@@ -1,13 +1,18 @@
-from utils import HEX_RADIUS, is_valid_hex, DIRECTION_NAMES, MAX_HEALTH
-from objects import Ship
+from utils import HEX_RADIUS, is_valid_hex, DIRECTION_NAMES
 
 DIRECTION_ARROWS = ["\u2192", "\u2197", "\u2196", "\u2190", "\u2199", "\u2198"]
 SCALE = 4
 
-
 GREEN = "\033[32m"
 RED = "\033[31m"
+CYAN = "\033[36m"
 RESET = "\033[0m"
+
+
+def _bar(current, maximum, bar_len=10):
+    filled = max(0, min(bar_len, current * bar_len // max(maximum, 1)))
+    empty = bar_len - filled
+    return "[" + "\u2588" * filled + "\u00b7" * empty + "]"
 
 
 def get_tile_emoji(tile, players=None, color=True):
@@ -15,6 +20,7 @@ def get_tile_emoji(tile, players=None, color=True):
         return "\u00b7"
     parts = []
     for obj in tile.content:
+        from objects import Ship
         if isinstance(obj, Ship):
             arrow = DIRECTION_ARROWS[obj.direction]
             if players and color:
@@ -77,14 +83,31 @@ def render_ship_status(player):
     if not ship.is_alive():
         return f"{ship.emoji} {player.name}: DESTROYED"
 
-    hp_bar = _health_bar(ship.health, MAX_HEALTH)
+    hull_bar = _bar(ship.hull, ship.hull_max)
+    shield_bar = _bar(ship.shield, ship.shield_max)
     dir_name = DIRECTION_NAMES[ship.direction] if ship.direction < len(DIRECTION_NAMES) else "?"
+
+    future_str = "  ".join(m.name for m in ship.future_moves) if ship.future_moves else "---"
+
     return (
-        f"{ship.emoji} {player.name}: {hp_bar} {ship.health}/{MAX_HEALTH} HP  "
-        f"\u26a1 {ship.max_energy - ship.energy_spent}/{ship.max_energy}  "
-        f"SPD:{ship.speed}  DIR:{dir_name}  "
-        f"@{tile_label(ship.tile.q, ship.tile.r) if ship.tile else '?'}"
+        f"{ship.emoji} {player.name}:"
+        f"  HP {hull_bar} {ship.hull}/{ship.hull_max}"
+        f"  SH {shield_bar} {ship.shield}/{ship.shield_max}"
+        f"  \u26a1 {ship.energy}/{ship.max_energy}"
+        f"  SPD:{ship.speed}  DIR:{dir_name}"
+        f"  NAV:{ship.navigation}  TRN:{ship.turning}"
+        f"  @{tile_label(ship.tile.q, ship.tile.r) if ship.tile else '?'}"
+        f"\n      FM: [{future_str}]"
     )
+
+
+def render_firing_arcs(ship):
+    marks = []
+    for i, enabled in enumerate(ship.firing_arcs):
+        label = DIRECTION_NAMES[i]
+        mark = f"{GREEN}\u2713{RESET}" if enabled else f"{RED}\u2717{RESET}"
+        marks.append(f"{label}:{mark}")
+    return "  ".join(marks)
 
 
 def display_ship_status(player):
@@ -92,8 +115,4 @@ def display_ship_status(player):
 
 
 def _health_bar(health, max_hp):
-    bar_len = 10
-    filled = max(0, health)
-    filled_len = max(0, min(bar_len, filled * bar_len // max_hp))
-    empty_len = bar_len - filled_len
-    return "[" + "\u2588" * filled_len + "\u00b7" * empty_len + "]"
+    return _bar(health, max_hp)

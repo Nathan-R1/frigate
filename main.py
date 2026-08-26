@@ -10,10 +10,11 @@ def main():
 
     game = Game(verbose=args.verbose, no_targeting=args.no_targeting)
     game.setup()
+    game.pregame_phase()
     game._render()
 
     while not game.is_over:
-        game.run_round()
+        game.run_turn()
 
     game.screen.render(game._build_display())
     print("\nGame Over!")

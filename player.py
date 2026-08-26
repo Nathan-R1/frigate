@@ -1,11 +1,14 @@
 from utils import (
-    AI_DESIRED_RANGE, hex_distance, NEIGHBOR_OFFSETS, has_line_of_sight, TORPEDO_DEPLOY_RANGE,
+    hex_distance, NEIGHBOR_OFFSETS, firing_arc_los,
+    TORPEDO_DEPLOY_RANGE, TORPEDO_ATTACK_RANGE,
 )
 from objects import Ship, TorpedoDeployable
 from actions import (
-    GravitonPlus, GravitonMinus, TurnCW, TurnCCW, NullMove,
+    Accelerate, Decelerate, NullMove,
     PD, Cannons, TorpedoDeploy, CommandTorpedo, NullAction,
 )
+
+AI_DESIRED_RANGE = 3
 
 
 class Player:
@@ -13,7 +16,6 @@ class Player:
         self.name = name
         self.ship = ship
         self.is_human = is_human
-        self.moves_queue = []
         self.deployables = []
 
     def direction_toward(self, from_coord, to_coord):
@@ -31,17 +33,14 @@ class Player:
     def direction_away(self, from_coord, to_coord):
         return (self.direction_toward(from_coord, to_coord) + 3) % 6
 
-    def declare_moves(self, game):
-        self.moves_queue = []
+    def choose_future_move(self, game):
         enemy = None
         for p in game.players:
             if p != self and p.ship.is_alive():
                 enemy = p
                 break
         if not enemy:
-            for _ in range(3):
-                self.moves_queue.append(NullMove())
-            return
+            return NullMove()
 
         my_pos = (self.ship.tile.q, self.ship.tile.r)
         enemy_pos = (enemy.ship.tile.q, enemy.ship.tile.r)
@@ -49,50 +48,26 @@ class Player:
         target_dir = self.direction_toward(my_pos, enemy_pos)
         away_dir = self.direction_away(my_pos, enemy_pos)
 
-        orig_dir = self.ship.direction
-        orig_speed = self.ship.speed
-
-        for _ in range(3):
-            if dist > AI_DESIRED_RANGE:
-                if self.ship.direction != target_dir:
-                    diff = (target_dir - self.ship.direction) % 6
-                    if diff <= 3:
-                        if diff <= 2:
-                            self.moves_queue.append(TurnCW())
-                        else:
-                            self.moves_queue.append(TurnCW())
-                    else:
-                        self.moves_queue.append(TurnCCW())
+        if dist > AI_DESIRED_RANGE:
+            if self.ship.direction != target_dir:
+                diff = (target_dir - self.ship.direction) % 6
+                if diff <= 3 and self.ship.turning > 0 and self.ship.speed <= self.ship.navigation:
+                    return NullMove()
                 else:
-                    self.moves_queue.append(GravitonPlus())
-            elif dist < AI_DESIRED_RANGE:
-                if self.ship.direction != away_dir:
-                    diff = (away_dir - self.ship.direction) % 6
-                    if diff <= 3:
-                        self.moves_queue.append(TurnCW())
-                    else:
-                        self.moves_queue.append(TurnCCW())
-                else:
-                    self.moves_queue.append(GravitonPlus())
+                    return Accelerate()
             else:
-                self.moves_queue.append(NullMove())
-
-            if isinstance(self.moves_queue[-1], (TurnCW, TurnCCW)):
-                if isinstance(self.moves_queue[-1], TurnCW):
-                    self.ship.direction = (self.ship.direction + 1) % 6
+                return Accelerate()
+        elif dist < AI_DESIRED_RANGE:
+            if self.ship.direction != away_dir:
+                diff = (away_dir - self.ship.direction) % 6
+                if diff <= 3 and self.ship.turning > 0 and self.ship.speed <= self.ship.navigation:
+                    return NullMove()
                 else:
-                    self.ship.direction = (self.ship.direction - 1) % 6
-                target_dir = self.direction_toward(
-                    (self.ship.tile.q, self.ship.tile.r), enemy_pos
-                )
-                away_dir = self.direction_away(
-                    (self.ship.tile.q, self.ship.tile.r), enemy_pos
-                )
-            elif isinstance(self.moves_queue[-1], GravitonPlus):
-                self.ship.speed += 1
-
-        self.ship.speed = orig_speed
-        self.ship.direction = orig_dir
+                    return Accelerate()
+            else:
+                return Accelerate()
+        else:
+            return NullMove()
 
     def choose_non_move_action(self, game):
         if not self.ship.is_alive():
@@ -106,42 +81,40 @@ class Player:
         if not enemy:
             return NullAction()
 
-        my_tile = self.ship.tile
+        ship = self.ship
+        my_tile = ship.tile
         enemy_tile = enemy.ship.tile
-        dist = hex_distance(
-            (my_tile.q, my_tile.r), (enemy_tile.q, enemy_tile.r)
-        )
-        has_los = has_line_of_sight(my_tile, enemy_tile, game.board)
+        enemy_pos = (enemy_tile.q, enemy_tile.r)
+        dist = hex_distance((my_tile.q, my_tile.r), enemy_pos)
 
         for torp in self.deployables:
             if isinstance(torp, TorpedoDeployable) and torp.tile:
                 torp_dist = hex_distance(
-                    (torp.tile.q, torp.tile.r), (enemy_tile.q, enemy_tile.r)
+                    (torp.tile.q, torp.tile.r), enemy_pos
                 )
-                torp_los = has_line_of_sight(torp.tile, enemy_tile, game.board)
-                if torp_dist <= torp.range and torp_los:
+                if torp_dist <= TORPEDO_ATTACK_RANGE:
                     return CommandTorpedo(torp, "Attack", enemy_tile.q, enemy_tile.r)
 
-        if dist <= 4 and has_los:
-            return Cannons(enemy_tile.q, enemy_tile.r)
+        if ship.energy >= 1 and ship.uses_left.get("Cannons", 1) > 0:
+            for arc_dir in range(6):
+                if not ship.firing_arcs[arc_dir]:
+                    continue
+                if dist <= 4 and firing_arc_los(
+                    my_tile, arc_dir, 4, enemy_tile.q, enemy_tile.r, game.board,
+                ):
+                    return Cannons(enemy_tile.q, enemy_tile.r, arc_dir)
 
-        if dist <= 1 and has_los:
-            return PD(enemy_tile.q, enemy_tile.r)
+        if ship.energy >= 1 and ship.uses_left.get("PD", 1) > 0:
+            for arc_dir in range(6):
+                if not ship.firing_arcs[arc_dir]:
+                    continue
+                if dist <= 1 and firing_arc_los(
+                    my_tile, arc_dir, 1, enemy_tile.q, enemy_tile.r, game.board,
+                ):
+                    return PD(enemy_tile.q, enemy_tile.r, arc_dir)
 
-        deploy_tile = None
-        for dq in range(-TORPEDO_DEPLOY_RANGE, TORPEDO_DEPLOY_RANGE + 1):
-            for dr in range(-TORPEDO_DEPLOY_RANGE, TORPEDO_DEPLOY_RANGE + 1):
-                tq, tr = my_tile.q + dq, my_tile.r + dr
-                if game.board.is_valid(tq, tr):
-                    td = hex_distance((tq, tr), (enemy_tile.q, enemy_tile.r))
-                    if td <= 8 and hex_distance((my_tile.q, my_tile.r), (tq, tr)) <= TORPEDO_DEPLOY_RANGE:
-                        if deploy_tile is None or td < hex_distance(
-                            (deploy_tile[0], deploy_tile[1]),
-                            (enemy_tile.q, enemy_tile.r),
-                        ):
-                            deploy_tile = (tq, tr)
-
-        if deploy_tile:
-            return TorpedoDeploy(deploy_tile[0], deploy_tile[1])
+        if ship.energy >= 1 and ship.uses_left.get("Torpedo Deploy", 1) > 0:
+            if dist <= TORPEDO_DEPLOY_RANGE:
+                return TorpedoDeploy(enemy_tile.q, enemy_tile.r)
 
         return NullAction()

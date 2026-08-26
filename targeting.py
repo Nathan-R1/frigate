@@ -5,22 +5,37 @@ import termios
 import time
 import tty
 
-from display import get_tile_emoji, render_board, render_ship_status, hex_to_pos, SCALE
-from utils import HEX_RADIUS, hex_distance
+from display import get_tile_emoji, render_board, render_ship_status, hex_to_pos, SCALE, DIRECTION_ARROWS
+from utils import (
+    HEX_RADIUS, DIRECTION_NAMES,
+    get_tiles_in_arc, hex_distance,
+)
 
 
 class TargetSelector:
-    def __init__(self, board, start_q, start_r, max_range, action_name, players, round_num=0):
+    def __init__(
+        self, board, start_q, start_r, max_range, action_name,
+        players, arc_direction, firing_arcs, round_num=0,
+    ):
         self.board = board
-        self.q = start_q
-        self.r = start_r
+        self.start_q = start_q
+        self.start_r = start_r
         self.max_range = max_range
         self.action_name = action_name
         self.players = players
-        self._start_q = start_q
-        self._start_r = start_r
+        self.arc_direction = arc_direction
         self._offset_x = HEX_RADIUS * SCALE
         self._round_num = round_num
+
+        self.valid_tiles = get_tiles_in_arc(
+            board.get_tile(start_q, start_r),
+            arc_direction,
+            max_range,
+            board,
+        )
+
+        self.q = start_q
+        self.r = start_r
 
     def select(self):
         old = self._set_raw_mode()
@@ -30,7 +45,9 @@ class TargetSelector:
                 key = self._read_key()
 
                 if key == 'ENTER':
-                    return (self.q, self.r)
+                    if (self.q, self.r) in self.valid_tiles:
+                        return (self.q, self.r)
+                    continue
 
                 if key in ('ESC',):
                     return None
@@ -93,23 +110,32 @@ class TargetSelector:
     def _draw(self):
         lines = self._board_lines_with_selection()
 
-        dist = hex_distance((self._start_q, self._start_r), (self.q, self.r))
-        out_of_range = dist > self.max_range
+        in_range = (self.q, self.r) in self.valid_tiles
 
         sys.stdout.write("\033[H\033[J")
         sys.stdout.write("=" * 60 + "\r\n")
         sys.stdout.write("FRIGATE \u2014 Hex Space Combat\r\n")
         sys.stdout.write("=" * 60 + "\r\n")
-        sys.stdout.write(f"Select target for {self.action_name} (max range {self.max_range})\r\n")
+
+        arc_label = DIRECTION_NAMES[self.arc_direction]
+        arc_arrow = DIRECTION_ARROWS[self.arc_direction]
+        sys.stdout.write(
+            f"Target: {self.action_name}  "
+            f"Arc: {arc_label} ({arc_arrow})  "
+            f"Range: {self.max_range}\r\n"
+        )
         sys.stdout.write("\r\n")
+
         for line in lines:
             sys.stdout.write(line + "\r\n")
         for p in self.players:
             sys.stdout.write(render_ship_status(p) + "\r\n")
-        status = f"Selected: {self.q},{self.r}  (distance: {dist})"
-        if out_of_range:
-            status += "  OUT OF RANGE!"
+
+        status = f"Selected: {self.q},{self.r}"
+        if not in_range:
+            status += "  NOT IN ARC!"
         sys.stdout.write(status + "\r\n")
+        sys.stdout.write("Arrow keys to move, Enter to confirm, ESC to cancel\r\n")
         sys.stdout.flush()
 
     def _set_raw_mode(self):
